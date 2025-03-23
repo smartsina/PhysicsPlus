@@ -1,17 +1,18 @@
 import { Router } from 'express';
+import { isAuth } from '../middleware/auth';
 import authRoutes from './auth';
 import examRoutes from './exam';
 import practiceRoutes from './practice';
 import dashboardRoutes from './dashboard';
-import adminRoutes from './admin';
-import { authenticateJWT } from '../middleware/auth';
 
 const router = Router();
 
+// Public routes
 router.use('/auth', authRoutes);
-router.use('/exam', authenticateJWT, examRoutes);
-router.use('/practice', authenticateJWT, practiceRoutes);
-router.use('/dashboard', authenticateJWT, dashboardRoutes);
-router.use('/admin', authenticateJWT, adminRoutes);
 
-export { router as routes };
+// Protected routes
+router.use('/exam', isAuth, examRoutes);
+router.use('/practice', isAuth, practiceRoutes);
+router.use('/dashboard', isAuth, dashboardRoutes);
+
+export default router;
