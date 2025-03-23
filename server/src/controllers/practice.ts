@@ -7,33 +7,29 @@ const prisma = new PrismaClient();
 export const getQuestions = async (req: Request, res: Response) => {
   try {
     const { topic, difficulty } = req.query;
+    const userId = (req.user as User).id;
 
     const questions = await prisma.question.findMany({
       where: {
-        topic: {
-          name: topic as string
-        },
-        difficulty: difficulty ? parseInt(difficulty as string) : undefined
-      },
-      select: {
-        id: true,
-        content: true,
-        difficulty: true,
-        topic: {
-          select: {
-            name: true
+        ...(topic && { topic: { name: topic.toString() } }),
+        ...(difficulty && { difficulty: parseInt(difficulty.toString()) }),
+        NOT: {
+          answers: {
+            some: {
+              userId
+            }
           }
         }
       },
-      orderBy: {
-        difficulty: 'asc'
+      include: {
+        topic: true
       },
       take: 10
     });
 
     res.json(questions);
   } catch (error) {
-    console.error('Get questions error:', error);
+    console.error('Get practice questions error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 };
@@ -44,7 +40,10 @@ export const submitAnswer = async (req: Request, res: Response) => {
     const userId = (req.user as User).id;
 
     const question = await prisma.question.findUnique({
-      where: { id: parseInt(questionId) }
+      where: { id: Number(questionId) },
+      include: {
+        topic: true
+      }
     });
 
     if (!question) {
@@ -56,27 +55,10 @@ export const submitAnswer = async (req: Request, res: Response) => {
     const answer = await prisma.answer.create({
       data: {
         userId,
-        questionId: parseInt(questionId),
+        questionId: Number(questionId),
         answer: selectedOption.toString(),
         isCorrect,
-        topic: (await prisma.topic.findUnique({
-          where: { id: question.topicId }
-        }))?.name || 'general'
-      }
-    });
-
-    // Update question difficulty based on answers
-    const questionAnswers = await prisma.answer.findMany({
-      where: { questionId: parseInt(questionId) }
-    });
-
-    const correctRate = questionAnswers.filter(a => a.isCorrect).length / questionAnswers.length;
-    const newDifficulty = Math.min(Math.max(Math.round((1 - correctRate) * 5), 1), 5);
-
-    await prisma.question.update({
-      where: { id: parseInt(questionId) },
-      data: {
-        difficulty: newDifficulty
+        topic: question.topic.name
       }
     });
 
@@ -85,7 +67,7 @@ export const submitAnswer = async (req: Request, res: Response) => {
       where: { id: userId },
       data: {
         xpPoints: {
-          increment: isCorrect ? 10 : 1
+          increment: isCorrect ? 5 : 1
         }
       }
     });
@@ -93,10 +75,10 @@ export const submitAnswer = async (req: Request, res: Response) => {
     res.json({
       success: true,
       answer,
-      xpGained: isCorrect ? 10 : 1
+      xpGained: isCorrect ? 5 : 1
     });
   } catch (error) {
-    console.error('Submit answer error:', error);
+    console.error('Submit practice answer error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 };
