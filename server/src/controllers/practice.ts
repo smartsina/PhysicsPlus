@@ -1,83 +1,102 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { logger } from '../utils/logger';
+import { User } from '../types';
 
 const prisma = new PrismaClient();
 
-export async function getPracticeQuestions(req: Request, res: Response) {
+export const getQuestions = async (req: Request, res: Response) => {
   try {
-    const { topic } = req.query;
-    const userId = req.user!.id;
+    const { topic, difficulty } = req.query;
 
     const questions = await prisma.question.findMany({
       where: {
-        topic: topic as string,
-        type: 'PRACTICE',
+        topic: {
+          name: topic as string
+        },
+        difficulty: difficulty ? parseInt(difficulty as string) : undefined
       },
       select: {
         id: true,
-        text: true,
-        options: true,
-        imageUrl: true,
-        topic: true,
-        difficulty_static: true,
+        content: true,
+        difficulty: true,
+        topic: {
+          select: {
+            name: true
+          }
+        }
       },
       orderBy: {
-        difficulty_static: 'asc',
+        difficulty: 'asc'
       },
-      take: 10,
+      take: 10
     });
 
     res.json(questions);
   } catch (error) {
-    logger.error('Get practice questions error:', error);
-    res.status(500).json({ message: 'خطای سرور' });
+    console.error('Get questions error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
-}
+};
 
-export async function submitPracticeAnswer(req: Request, res: Response) {
+export const submitAnswer = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const { selectedOption, confidenceLevel, responseTime } = req.body;
-    const userId = req.user!.id;
+    const { questionId, selectedOption } = req.body;
+    const userId = (req.user as User).id;
 
     const question = await prisma.question.findUnique({
-      where: { id },
+      where: { id: parseInt(questionId) }
     });
 
     if (!question) {
-      return res.status(404).json({ message: 'سوال یافت نشد' });
+      return res.status(404).json({ message: 'Question not found' });
     }
 
-    const isCorrect = question.correctOption === selectedOption;
+    const isCorrect = question.correctAnswer === selectedOption.toString();
 
-    await prisma.$transaction([
-      prisma.answer.create({
-        data: {
-          userId,
-          questionId: id,
-          selectedOption,
-          isCorrect,
-          confidenceLevel,
-          responseTime,
-        },
-      }),
-      prisma.question.update({
-        where: { id },
-        data: {
-          difficulty_dynamic: {
-            increment: isCorrect ? -0.1 : 0.1,
-          },
-        },
-      }),
-    ]);
+    const answer = await prisma.answer.create({
+      data: {
+        userId,
+        questionId: parseInt(questionId),
+        answer: selectedOption.toString(),
+        isCorrect,
+        topic: (await prisma.topic.findUnique({
+          where: { id: question.topicId }
+        }))?.name || 'general'
+      }
+    });
+
+    // Update question difficulty based on answers
+    const questionAnswers = await prisma.answer.findMany({
+      where: { questionId: parseInt(questionId) }
+    });
+
+    const correctRate = questionAnswers.filter(a => a.isCorrect).length / questionAnswers.length;
+    const newDifficulty = Math.min(Math.max(Math.round((1 - correctRate) * 5), 1), 5);
+
+    await prisma.question.update({
+      where: { id: parseInt(questionId) },
+      data: {
+        difficulty: newDifficulty
+      }
+    });
+
+    // Update user XP
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        xpPoints: {
+          increment: isCorrect ? 10 : 1
+        }
+      }
+    });
 
     res.json({
-      isCorrect,
-      explanation: question.explanation,
+      success: true,
+      answer,
+      xpGained: isCorrect ? 10 : 1
     });
   } catch (error) {
-    logger.error('Submit practice answer error:', error);
-    res.status(500).json({ message: 'خطای سرور' });
+    console.error('Submit answer error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
-}
+};
