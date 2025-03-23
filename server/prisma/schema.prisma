@@ -8,71 +8,75 @@ datasource db {
 }
 
 model User {
-  id              Int               @id @default(autoincrement())
-  username        String            @unique
-  email           String            @unique
-  passwordHash    String
-  xpPoints        Int               @default(0)
-  createdAt       DateTime          @default(now())
-  answers         Answer[]
-  examResults     ExamResult[]
-  achievements    UserAchievement[]
-  activityLogs    ActivityLog[]
+  id           Int              @id @default(autoincrement())
+  username     String          @unique
+  email        String          @unique
+  password     String
+  role         String          @default("user")
+  xpPoints     Int             @default(0)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  answers      Answer[]
+  examResults  ExamResult[]
+  achievements UserAchievement[]
+  activityLogs ActivityLog[]
 }
 
 model Topic {
-  id          Int         @id @default(autoincrement())
-  name        String      @unique
-  description String?
-  createdAt   DateTime    @default(now())
-  questions   Question[]
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  questions Question[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 }
 
 model Question {
   id            Int      @id @default(autoincrement())
-  topicId       Int
-  content       String
+  text          String
+  options       String[]
   correctAnswer String
-  explanation   String?
-  difficulty    Int
-  createdAt     DateTime @default(now())
-  topic         Topic    @relation(fields: [topicId], references: [id])
-  answers       Answer[]
+  difficulty    Int      @default(1)
+  topic        Topic    @relation(fields: [topicId], references: [id])
+  topicId      Int
+  answers      Answer[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model Answer {
   id         Int      @id @default(autoincrement())
+  user       User     @relation(fields: [userId], references: [id])
   userId     Int
+  question   Question @relation(fields: [questionId], references: [id])
   questionId Int
   answer     String
   isCorrect  Boolean
   topic      String
   createdAt  DateTime @default(now())
-  user       User     @relation(fields: [userId], references: [id])
-  question   Question @relation(fields: [questionId], references: [id])
 }
 
 model ExamResult {
   id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
   userId    Int
   score     Int
+  topic     String
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
 }
 
 model UserAchievement {
-  id            Int      @id @default(autoincrement())
-  userId        Int
+  id          Int      @id @default(autoincrement())
+  user        User     @relation(fields: [userId], references: [id])
+  userId      Int
   achievementId String
-  earnedAt      DateTime @default(now())
-  user          User     @relation(fields: [userId], references: [id])
+  earnedAt    DateTime @default(now())
 }
 
 model ActivityLog {
   id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
   userId    Int
   type      String
-  details   Json?
+  details   Json
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
 }
