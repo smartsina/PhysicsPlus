@@ -10,7 +10,10 @@ export const submitExamAnswer = async (req: Request, res: Response) => {
     const userId = (req.user as User).id;
 
     const question = await prisma.question.findUnique({
-      where: { id: Number(questionId) }
+      where: { id: Number(questionId) },
+      include: {
+        topic: true
+      }
     });
 
     if (!question) {
@@ -25,7 +28,7 @@ export const submitExamAnswer = async (req: Request, res: Response) => {
         questionId: Number(questionId),
         answer: selectedOption.toString(),
         isCorrect,
-        topic: question.topic || 'general'
+        topic: question.topic.name
       }
     });
 
