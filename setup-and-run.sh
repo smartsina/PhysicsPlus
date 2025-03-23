@@ -113,18 +113,35 @@ EOF
 
 # Install dependencies and build the project
 echo "📦 Installing dependencies..."
-cd server && npm install
-cd ../client && npm install
+cd server
+npm install
+npm install -g typescript
 
-# Build the project
-echo "🔨 Building the project..."
-cd ../server && npm run build
-cd ../client && npm run build
+# Ensure TypeScript configuration exists
+if [ ! -f "tsconfig.json" ]; then
+    echo "⚙️ Creating TypeScript configuration..."
+    npx tsc --init --target es2020 --module commonjs --outDir ./dist --rootDir ./src --esModuleInterop true --strict true
+fi
+
+# Create dist directory if it doesn't exist
+mkdir -p dist
+
+echo "🔨 Building server..."
+npx tsc
+
+cd ../client
+echo "📦 Installing client dependencies..."
+npm install
+
+echo "🔨 Building client..."
+npm run build
 
 # Start the services
 echo "🚀 Starting the services..."
-cd ../server && npm run start &
-cd ../client && npm run start &
+cd ../server
+npm run start &
+cd ../client
+npm run start &
 
 echo "✅ Setup complete! The application should be running at:"
 echo "Frontend: http://localhost:3000"
