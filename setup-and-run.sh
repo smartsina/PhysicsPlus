@@ -1,80 +1,58 @@
 #!/bin/bash
 
-# Enable error handling
+# Exit on any error
 set -e
-trap 'handle_error $? $LINENO' ERR
 
-# Color codes
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+echo "🚀 Setting up PhysicsPlus project..."
 
-# Error handler function
+# Function to check if a command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Function to handle errors
 handle_error() {
-    echo -e "${RED}Error occurred in script at line $2${NC}"
-    case $1 in
-        1) echo -e "${RED}General error${NC}" ;;
-        2) echo -e "${RED}Missing dependency${NC}" ;;
-        126|127) echo -e "${RED}Command not found${NC}" ;;
-        *) echo -e "${RED}Unknown error: $1${NC}" ;;
-    esac
-    exit $1
+    echo "❌ Error: $1"
+    exit 1
 }
 
-# Logger function
-log() {
-    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
-}
-
-# Warning logger
-warn() {
-    echo -e "${YELLOW}[WARNING] $1${NC}"
-}
-
-# Check for required commands
-check_dependencies() {
-    log "Checking required dependencies..."
-    local deps=("node" "npm" "git")
-    for dep in "${deps[@]}"; do
-        if ! command -v "$dep" >/dev/null 2>&1; then
-            warn "$dep is not installed. Installing..."
-            case "$dep" in
-                "node"|"npm")
-                    if [[ "$OSTYPE" == "darwin"* ]]; then
-                        brew install node
-                    else
-                        curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
-                        sudo apt-get install -y nodejs
-                    fi
-                    ;;
-                "git")
-                    if [[ "$OSTYPE" == "darwin"* ]]; then
-                        brew install git
-                    else
-                        sudo apt-get install -y git
-                    fi
-                    ;;
-            esac
-        fi
-    done
-}
-
-# Setup project directory
-setup_project() {
-    log "Setting up project directory..."
-    if [ ! -d "PhysicsPlus" ]; then
-        git clone https://github.com/smartsina/PhysicsPlus.git
+# Check for required tools
+echo "📋 Checking required tools..."
+for cmd in node npm psql redis-cli git; do
+    if ! command_exists "$cmd"; then
+        handle_error "$cmd is not installed. Please install it first."
     fi
-    cd PhysicsPlus
+done
+
+# Create project directory
+PROJECT_DIR="PhysicsPlus"
+if [ ! -d "$PROJECT_DIR" ]; then
+    echo "📁 Creating project directory..."
+    mkdir -p "$PROJECT_DIR"
+fi
+
+cd "$PROJECT_DIR"
+
+# Clone or update repository
+if [ ! -d ".git" ]; then
+    echo "📥 Cloning repository..."
+    git clone https://github.com/smartsina/PhysicsPlus.git .
+else
+    echo "🔄 Updating repository..."
     git pull origin main
-}
+fi
+
+# Setup server
+echo "🛠️ Setting up server..."
+cd server || handle_error "Server directory not found"
+
+# Install dependencies
+echo "📦 Installing server dependencies..."
+npm install || handle_error "Failed to install server dependencies"
 
 # Setup environment variables
-setup_env() {
-    log "Setting up environment variables..."
-    if [ ! -f ".env" ]; then
-        cat > .env << EOL
+echo "⚙️ Creating server environment file..."
+cat > .env << EOL
 DATABASE_URL="postgresql://postgres:postgres@localhost:5432/physicsplus?schema=public"
 PORT=5000
 REDIS_HOST=localhost
@@ -82,133 +60,144 @@ REDIS_PORT=6379
 JWT_SECRET=your_jwt_secret_here
 NODE_ENV=development
 EOL
-        warn "Created default .env file. Please update with your actual credentials."
-    fi
+
+# Initialize Prisma
+echo "🗄️ Setting up database with Prisma..."
+cat > prisma/schema.prisma << EOL
+generator client {
+  provider = "prisma-client-js"
 }
 
-# Install and setup server
-setup_server() {
-    log "Setting up server..."
-    cd server
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
 
-    # Install dependencies
-    log "Installing server dependencies..."
-    npm install
+model User {
+  id              Int               @id @default(autoincrement())
+  username        String            @unique
+  email           String            @unique
+  passwordHash    String
+  xpPoints        Int               @default(0)
+  createdAt       DateTime          @default(now())
+  answers         Answer[]
+  examResults     ExamResult[]
+  achievements    UserAchievement[]
+  activityLogs    ActivityLog[]
+}
 
-    # Initialize Prisma
-    log "Initializing Prisma..."
-    npx prisma generate
+model Topic {
+  id          Int         @id @default(autoincrement())
+  name        String      @unique
+  description String?
+  createdAt   DateTime    @default(now())
+  questions   Question[]
+}
 
-    # Create TypeScript config if not exists
-    if [ ! -f "tsconfig.json" ]; then
-        log "Creating TypeScript configuration..."
-        cat > tsconfig.json << EOL
-{
-  "compilerOptions": {
-    "target": "es2020",
-    "module": "commonjs",
-    "lib": ["es2020"],
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node",
-    "resolveJsonModule": true,
-    "declaration": true,
-    "sourceMap": true,
-    "baseUrl": ".",
-    "paths": {
-      "*": ["node_modules/*"]
-    }
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+model Question {
+  id            Int      @id @default(autoincrement())
+  topicId       Int
+  content       String
+  correctAnswer String
+  explanation   String?
+  difficulty    Int
+  createdAt     DateTime @default(now())
+  topic         Topic    @relation(fields: [topicId], references: [id])
+  answers       Answer[]
+}
+
+model Answer {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  questionId Int
+  answer     String
+  isCorrect  Boolean
+  topic      String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+  question   Question @relation(fields: [questionId], references: [id])
+}
+
+model ExamResult {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  score     Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model UserAchievement {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  achievementId String
+  earnedAt      DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id])
+}
+
+model ActivityLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  type      String
+  details   Json?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
 }
 EOL
-    fi
 
-    # Create dist directory
-    mkdir -p dist
+# Generate Prisma client and run migrations
+echo "🔄 Generating Prisma client and running migrations..."
+npx prisma generate || handle_error "Failed to generate Prisma client"
+npx prisma migrate reset --force || handle_error "Failed to reset database"
 
-    # Build server
-    log "Building server..."
-    npm run build
+# Build server
+echo "🔨 Building server..."
+npm run build || handle_error "Failed to build server"
 
-    cd ..
-}
+# Setup client
+echo "🎨 Setting up client..."
+cd ../client || handle_error "Client directory not found"
 
-# Install and setup client
-setup_client() {
-    log "Setting up client..."
-    cd client
+# Install dependencies
+echo "📦 Installing client dependencies..."
+npm install || handle_error "Failed to install client dependencies"
 
-    # Install dependencies
-    log "Installing client dependencies..."
-    npm install
+# Setup environment variables
+echo "⚙️ Creating client environment file..."
+cat > .env.local << EOL
+NEXT_PUBLIC_API_URL=http://localhost:5000
+EOL
 
-    # Build client
-    log "Building client..."
-    npm run build
-
-    cd ..
-}
+# Build client
+echo "🔨 Building client..."
+npm run build || handle_error "Failed to build client"
 
 # Start services
-start_services() {
-    log "Starting services..."
-    
-    # Start server
-    cd server
-    npm run start &
-    SERVER_PID=$!
-    cd ..
+echo "🚀 Starting services..."
 
-    # Start client
-    cd client
-    npm run start &
-    CLIENT_PID=$!
-    cd ..
-
-    # Save PIDs
-    echo "$SERVER_PID" > .server.pid
-    echo "$CLIENT_PID" > .client.pid
-
-    log "Services started successfully!"
-    log "Frontend running at: http://localhost:3000"
-    log "Backend running at: http://localhost:5000"
-    log "To stop the services, run: ./stop-services.sh"
-
-    # Create stop script
-    cat > stop-services.sh << EOL
-#!/bin/bash
-if [ -f .server.pid ]; then
-    kill \$(cat .server.pid)
-    rm .server.pid
+# Start Redis if not running
+if ! redis-cli ping > /dev/null 2>&1; then
+    echo "Starting Redis..."
+    redis-server &
 fi
-if [ -f .client.pid ]; then
-    kill \$(cat .client.pid)
-    rm .client.pid
-fi
-echo "Services stopped"
-EOL
-    chmod +x stop-services.sh
-}
 
-# Main execution
-main() {
-    log "Starting PhysicsPlus setup..."
-    
-    check_dependencies
-    setup_project
-    setup_env
-    setup_server
-    setup_client
-    start_services
-    
-    log "Setup completed successfully!"
-}
+# Start server
+cd ../server
+echo "Starting server..."
+npm run start &
 
-# Run main function
-main
+# Start client
+cd ../client
+echo "Starting client..."
+npm run start &
+
+echo "✅ Setup complete! The application should be running at:"
+echo "Frontend: http://localhost:3000"
+echo "Backend: http://localhost:5000"
+echo ""
+echo "To stop all services:"
+echo "pkill -f 'node'"
+echo ""
+echo "⚠️ Important notes:"
+echo "1. Make sure PostgreSQL is running"
+echo "2. Update the JWT_SECRET in server/.env for production"
+echo "3. Update database credentials if needed"
