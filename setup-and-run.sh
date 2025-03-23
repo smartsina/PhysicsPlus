@@ -1,149 +1,214 @@
 #!/bin/bash
 
-# Exit on any error
+# Enable error handling
 set -e
+trap 'handle_error $? $LINENO' ERR
 
-echo "🚀 Setting up PhysicsPlus project..."
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
-# Function to check if a command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
+# Error handler function
+handle_error() {
+    echo -e "${RED}Error occurred in script at line $2${NC}"
+    case $1 in
+        1) echo -e "${RED}General error${NC}" ;;
+        2) echo -e "${RED}Missing dependency${NC}" ;;
+        126|127) echo -e "${RED}Command not found${NC}" ;;
+        *) echo -e "${RED}Unknown error: $1${NC}" ;;
+    esac
+    exit $1
 }
 
-# Check for required tools
-echo "📋 Checking required tools..."
-for cmd in node npm psql redis-cli git; do
-    if ! command_exists "$cmd"; then
-        echo "❌ $cmd is not installed. Please install it first."
-        exit 1
+# Logger function
+log() {
+    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')] $1${NC}"
+}
+
+# Warning logger
+warn() {
+    echo -e "${YELLOW}[WARNING] $1${NC}"
+}
+
+# Check for required commands
+check_dependencies() {
+    log "Checking required dependencies..."
+    local deps=("node" "npm" "git")
+    for dep in "${deps[@]}"; do
+        if ! command -v "$dep" >/dev/null 2>&1; then
+            warn "$dep is not installed. Installing..."
+            case "$dep" in
+                "node"|"npm")
+                    if [[ "$OSTYPE" == "darwin"* ]]; then
+                        brew install node
+                    else
+                        curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+                        sudo apt-get install -y nodejs
+                    fi
+                    ;;
+                "git")
+                    if [[ "$OSTYPE" == "darwin"* ]]; then
+                        brew install git
+                    else
+                        sudo apt-get install -y git
+                    fi
+                    ;;
+            esac
+        fi
+    done
+}
+
+# Setup project directory
+setup_project() {
+    log "Setting up project directory..."
+    if [ ! -d "PhysicsPlus" ]; then
+        git clone https://github.com/smartsina/PhysicsPlus.git
     fi
-done
-
-# Clone the repository if it doesn't exist
-if [ ! -d "PhysicsPlus" ]; then
-    echo "📥 Cloning repository..."
-    git clone https://github.com/smartsina/PhysicsPlus.git
     cd PhysicsPlus
-else
-    cd PhysicsPlus
-    echo "🔄 Updating repository..."
     git pull origin main
-fi
+}
 
-# Setup environment variables if not exists
-if [ ! -f ".env" ]; then
-    echo "⚙️ Creating environment file..."
-    cat > .env << EOL
-PORT=3000
-DB_HOST=localhost
-DB_PORT=5432
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_NAME=physicsplus
+# Setup environment variables
+setup_env() {
+    log "Setting up environment variables..."
+    if [ ! -f ".env" ]; then
+        cat > .env << EOL
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/physicsplus?schema=public"
+PORT=5000
 REDIS_HOST=localhost
 REDIS_PORT=6379
 JWT_SECRET=your_jwt_secret_here
+NODE_ENV=development
 EOL
-    echo "⚠️ Please update the .env file with your actual database credentials and JWT secret"
+        warn "Created default .env file. Please update with your actual credentials."
+    fi
+}
+
+# Install and setup server
+setup_server() {
+    log "Setting up server..."
+    cd server
+
+    # Install dependencies
+    log "Installing server dependencies..."
+    npm install
+
+    # Initialize Prisma
+    log "Initializing Prisma..."
+    npx prisma generate
+
+    # Create TypeScript config if not exists
+    if [ ! -f "tsconfig.json" ]; then
+        log "Creating TypeScript configuration..."
+        cat > tsconfig.json << EOL
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "commonjs",
+    "lib": ["es2020"],
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "*": ["node_modules/*"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
+EOL
+    fi
+
+    # Create dist directory
+    mkdir -p dist
+
+    # Build server
+    log "Building server..."
+    npm run build
+
+    cd ..
+}
+
+# Install and setup client
+setup_client() {
+    log "Setting up client..."
+    cd client
+
+    # Install dependencies
+    log "Installing client dependencies..."
+    npm install
+
+    # Build client
+    log "Building client..."
+    npm run build
+
+    cd ..
+}
+
+# Start services
+start_services() {
+    log "Starting services..."
+    
+    # Start server
+    cd server
+    npm run start &
+    SERVER_PID=$!
+    cd ..
+
+    # Start client
+    cd client
+    npm run start &
+    CLIENT_PID=$!
+    cd ..
+
+    # Save PIDs
+    echo "$SERVER_PID" > .server.pid
+    echo "$CLIENT_PID" > .client.pid
+
+    log "Services started successfully!"
+    log "Frontend running at: http://localhost:3000"
+    log "Backend running at: http://localhost:5000"
+    log "To stop the services, run: ./stop-services.sh"
+
+    # Create stop script
+    cat > stop-services.sh << EOL
+#!/bin/bash
+if [ -f .server.pid ]; then
+    kill \$(cat .server.pid)
+    rm .server.pid
 fi
-
-# Setup database
-echo "🗄️ Setting up database..."
-psql -U postgres << EOF
-CREATE DATABASE physicsplus;
-\c physicsplus
-CREATE TABLE IF NOT EXISTS users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(255) NOT NULL UNIQUE,
-    email VARCHAR(255) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL,
-    xp_points INTEGER DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS topics (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL UNIQUE,
-    description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS questions (
-    id SERIAL PRIMARY KEY,
-    topic_id INTEGER REFERENCES topics(id),
-    content TEXT NOT NULL,
-    correct_answer TEXT NOT NULL,
-    explanation TEXT,
-    difficulty INTEGER CHECK (difficulty BETWEEN 1 AND 5),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS answers (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id),
-    question_id INTEGER REFERENCES questions(id),
-    answer TEXT NOT NULL,
-    is_correct BOOLEAN NOT NULL,
-    topic VARCHAR(255) NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS exam_results (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id),
-    score INTEGER CHECK (score BETWEEN 0 AND 100),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS user_achievements (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id),
-    achievement_id VARCHAR(255) NOT NULL,
-    earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS activity_logs (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id),
-    type VARCHAR(255) NOT NULL,
-    details JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-EOF
-
-# Install dependencies and build the project
-echo "📦 Installing dependencies..."
-cd server
-npm install
-npm install -g typescript
-
-# Ensure TypeScript configuration exists
-if [ ! -f "tsconfig.json" ]; then
-    echo "⚙️ Creating TypeScript configuration..."
-    npx tsc --init --target es2020 --module commonjs --outDir ./dist --rootDir ./src --esModuleInterop true --strict true
+if [ -f .client.pid ]; then
+    kill \$(cat .client.pid)
+    rm .client.pid
 fi
+echo "Services stopped"
+EOL
+    chmod +x stop-services.sh
+}
 
-# Create dist directory if it doesn't exist
-mkdir -p dist
+# Main execution
+main() {
+    log "Starting PhysicsPlus setup..."
+    
+    check_dependencies
+    setup_project
+    setup_env
+    setup_server
+    setup_client
+    start_services
+    
+    log "Setup completed successfully!"
+}
 
-echo "🔨 Building server..."
-npx tsc
-
-cd ../client
-echo "📦 Installing client dependencies..."
-npm install
-
-echo "🔨 Building client..."
-npm run build
-
-# Start the services
-echo "🚀 Starting the services..."
-cd ../server
-npm run start &
-cd ../client
-npm run start &
-
-echo "✅ Setup complete! The application should be running at:"
-echo "Frontend: http://localhost:3000"
-echo "Backend: http://localhost:5000"
-echo "To stop the services, use: pkill -f 'node'"
+# Run main function
+main
