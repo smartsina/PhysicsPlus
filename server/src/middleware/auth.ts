@@ -14,6 +14,8 @@ declare global {
   }
 }
 
+type UserRole = 'user' | 'admin';
+
 export const isAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
@@ -38,7 +40,7 @@ export const isAuth = async (req: Request, res: Response, next: NextFunction) =>
 
     req.user = {
       ...user,
-      role: decoded.role || 'user'
+      role: (decoded.role || 'user') as UserRole
     };
 
     next();
