@@ -32,8 +32,7 @@ model Topic {
 
 model Question {
   id            Int      @id @default(autoincrement())
-  title         String
-  content       String
+  text          String
   options       String[]
   correctAnswer String
   difficulty    Int      @default(1)
