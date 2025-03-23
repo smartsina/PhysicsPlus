@@ -1,23 +1,34 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { User } from '../types';
+import { User, TopicStats } from '../types';
 
 const prisma = new PrismaClient();
-
-interface TopicProgress {
-  total: number;
-  correct: number;
-}
 
 export const getDashboard = async (req: Request, res: Response) => {
   try {
     const userId = (req.user as User).id;
 
+    // Get user data with achievements
     const user = await prisma.user.findUnique({
       where: { id: userId },
       include: {
-        answers: true,
-        examResults: true
+        achievements: true,
+        answers: {
+          include: {
+            question: {
+              include: {
+                topic: true
+              }
+            }
+          }
+        },
+        examResults: true,
+        activityLogs: {
+          orderBy: {
+            createdAt: 'desc'
+          },
+          take: 10
+        }
       }
     });
 
@@ -25,68 +36,63 @@ export const getDashboard = async (req: Request, res: Response) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Calculate user stats
-    const stats = {
-      totalQuestions: user.answers.length,
-      correctAnswers: user.answers.filter(a => a.isCorrect).length,
-      examsTaken: user.examResults.length,
-      averageScore: user.examResults.length > 0
-        ? user.examResults.reduce((acc, exam) => acc + exam.score, 0) / user.examResults.length
-        : 0,
-      xpPoints: user.xpPoints,
-      level: Math.floor(user.xpPoints / 100) + 1,
-      studyStreak: 0 // This will be implemented with activity tracking
+    // Calculate topic statistics
+    const topicStats = user.answers.reduce((acc: Record<string, TopicStats>, answer) => {
+      const topicName = answer.question.topic.name;
+      if (!acc[topicName]) {
+        acc[topicName] = {
+          topic: topicName,
+          total: 0,
+          correct: 0
+        };
+      }
+      acc[topicName].total++;
+      if (answer.isCorrect) {
+        acc[topicName].correct++;
+      }
+      return acc;
+    }, {});
+
+    // Calculate weak topics (accuracy < 60%)
+    const weakTopics = Object.values(topicStats)
+      .filter(stats => stats.total >= 5 && (stats.correct / stats.total) < 0.6)
+      .map(stats => stats.topic);
+
+    // Calculate overall statistics
+    const totalAnswers = user.answers.length;
+    const correctAnswers = user.answers.filter(a => a.isCorrect).length;
+    const accuracy = totalAnswers > 0 ? (correctAnswers / totalAnswers) * 100 : 0;
+
+    // Get recent achievements
+    const recentAchievements = user.achievements
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 5);
+
+    // Format response
+    const dashboardData = {
+      user: {
+        username: user.username,
+        xpPoints: user.xpPoints,
+        level: Math.floor(user.xpPoints / 100) + 1
+      },
+      stats: {
+        totalAnswers,
+        correctAnswers,
+        accuracy: Math.round(accuracy * 10) / 10,
+        examsTaken: user.examResults.length,
+        averageExamScore: user.examResults.length > 0
+          ? Math.round(user.examResults.reduce((sum, exam) => sum + exam.score, 0) / user.examResults.length)
+          : 0
+      },
+      topicStats: Object.values(topicStats),
+      weakTopics,
+      recentAchievements,
+      recentActivity: user.activityLogs
     };
 
-    // Get topic progress
-    const topics = await prisma.topic.findMany();
-    const answers = await prisma.answer.findMany({
-      where: { userId }
-    });
-
-    const topicProgress: Record<string, TopicProgress> = {};
-    
-    topics.forEach(topic => {
-      const topicAnswers = answers.filter(a => a.topic === topic.name);
-      topicProgress[topic.name] = {
-        total: topicAnswers.length,
-        correct: topicAnswers.filter(a => a.isCorrect).length
-      };
-    });
-
-    // Get recent activity
-    const recentQuestions = await prisma.answer.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-      include: {
-        question: true
-      }
-    });
-
-    const recentActivity = recentQuestions.map(activity => ({
-      id: activity.id,
-      type: 'question',
-      topic: activity.topic,
-      isCorrect: activity.isCorrect,
-      createdAt: activity.createdAt,
-      score: activity.isCorrect ? 10 : 0
-    }));
-
-    res.json({
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        xpPoints: user.xpPoints,
-        level: stats.level
-      },
-      stats,
-      topicProgress,
-      recentActivity
-    });
+    res.json(dashboardData);
   } catch (error) {
-    console.error('Dashboard error:', error);
+    console.error('Get dashboard error:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 };
