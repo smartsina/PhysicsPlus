@@ -1,5 +1,7 @@
-import { pool } from '../config/db';
+import { PrismaClient } from '@prisma/client';
 import { User, Answer, ExamResult, TopicStats } from '../types';
+
+const prisma = new PrismaClient();
 
 interface Achievement {
   id: string;
@@ -15,7 +17,10 @@ const achievements: Achievement[] = [
     title: 'First Success',
     description: 'Get your first correct answer',
     condition: async (user: User) => {
-      return user.answers.some((answer: Answer) => answer.isCorrect);
+      const answers = await prisma.answer.findMany({
+        where: { userId: user.id }
+      });
+      return answers.some(answer => answer.isCorrect);
     },
     points: 10
   },
@@ -24,7 +29,10 @@ const achievements: Achievement[] = [
     title: 'Perfect Score',
     description: 'Get 100% on an exam',
     condition: async (user: User) => {
-      return user.exams.some((exam: ExamResult) => exam.score === 100);
+      const exams = await prisma.examResult.findMany({
+        where: { userId: user.id }
+      });
+      return exams.some(exam => exam.score === 100);
     },
     points: 50
   },
@@ -33,7 +41,11 @@ const achievements: Achievement[] = [
     title: 'Topic Master',
     description: 'Get 90% or higher accuracy in a topic with at least 10 questions',
     condition: async (user: User) => {
-      const topicStats = user.answers.reduce((acc: Record<string, TopicStats>, answer: Answer) => {
+      const answers = await prisma.answer.findMany({
+        where: { userId: user.id }
+      });
+
+      const topicStats = answers.reduce((acc: Record<string, TopicStats>, answer) => {
         if (!acc[answer.topic]) {
           acc[answer.topic] = {
             total: 0,
@@ -46,7 +58,7 @@ const achievements: Achievement[] = [
           acc[answer.topic].correct++;
         }
         return acc;
-      }, {} as Record<string, TopicStats>);
+      }, {});
 
       return Object.values(topicStats).some((stats: TopicStats) => 
         stats.total >= 10 &&
@@ -60,57 +72,52 @@ const achievements: Achievement[] = [
 
 export async function checkAchievements(userId: number): Promise<void> {
   try {
-    // Get user data with related information
-    const userResult = await pool.query<User>(
-      `SELECT u.*, 
-              json_agg(DISTINCT a.*) as answers,
-              json_agg(DISTINCT e.*) as exams
-       FROM users u
-       LEFT JOIN answers a ON u.id = a.user_id
-       LEFT JOIN exam_results e ON u.id = e.user_id
-       WHERE u.id = $1
-       GROUP BY u.id`,
-      [userId]
-    );
-    const user = userResult.rows[0];
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
 
     if (!user) {
       throw new Error('User not found');
     }
 
-    // Get existing achievements
-    const existingAchievementsResult = await pool.query<{ achievement_id: string }>(
-      'SELECT achievement_id FROM user_achievements WHERE user_id = $1',
-      [userId]
-    );
-    const existingAchievements = new Set(
-      existingAchievementsResult.rows.map(row => row.achievement_id)
+    const existingAchievements = await prisma.userAchievement.findMany({
+      where: { userId }
+    });
+
+    const existingAchievementIds = new Set(
+      existingAchievements.map(achievement => achievement.achievementId)
     );
 
-    // Check for new achievements
     for (const achievement of achievements) {
-      if (!existingAchievements.has(achievement.id)) {
+      if (!existingAchievementIds.has(achievement.id)) {
         const achieved = await achievement.condition(user);
         if (achieved) {
-          // Award the achievement
-          await pool.query(
-            `INSERT INTO user_achievements (user_id, achievement_id, earned_at)
-             VALUES ($1, $2, NOW())`,
-            [userId, achievement.id]
-          );
+          await prisma.userAchievement.create({
+            data: {
+              userId,
+              achievementId: achievement.id
+            }
+          });
 
-          // Add XP points
-          await pool.query(
-            'UPDATE users SET xp_points = xp_points + $1 WHERE id = $2',
-            [achievement.points, userId]
-          );
+          await prisma.user.update({
+            where: { id: userId },
+            data: {
+              xpPoints: {
+                increment: achievement.points
+              }
+            }
+          });
 
-          // Log the activity
-          await pool.query(
-            `INSERT INTO activity_logs (user_id, type, details)
-             VALUES ($1, 'achievement_earned', $2)`,
-            [userId, JSON.stringify({ achievementId: achievement.id, points: achievement.points })]
-          );
+          await prisma.activityLog.create({
+            data: {
+              userId,
+              type: 'achievement_earned',
+              details: {
+                achievementId: achievement.id,
+                points: achievement.points
+              }
+            }
+          });
         }
       }
     }
