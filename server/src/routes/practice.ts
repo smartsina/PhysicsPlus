@@ -1,12 +1,10 @@
 import { Router } from 'express';
-import {
-  getPracticeQuestions,
-  submitPracticeAnswer,
-} from '../controllers/practice';
+import { getQuestions, submitAnswer } from '../controllers/practice';
+import { isAuth } from '../middleware/auth';
 
 const router = Router();
 
-router.get('/', getPracticeQuestions);
-router.post('/:id/answer', submitPracticeAnswer);
+router.get('/questions', isAuth, getQuestions);
+router.post('/submit', isAuth, submitAnswer);
 
 export default router;
