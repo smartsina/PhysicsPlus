@@ -1,0 +1,101 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  username      String    @unique
+  password      String
+  name          String
+  role          Role      @default(STUDENT)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+  studyStreak   Int       @default(0)
+  xpPoints      Int       @default(0)
+  level         Int       @default(1)
+  badges        String[]  @default([]) // JSON array of earned badges
+  answers       Answer[]
+  exams         Exam[]
+  parent        Parent?   @relation("StudentParent")
+  parentId      String?
+
+  @@map("users")
+}
+
+model Parent {
+  id         String   @id @default(uuid())
+  user       User     @relation("StudentParent", fields: [userId], references: [id])
+  userId     String   @unique
+  phone      String?
+  email      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("parents")
+}
+
+model Question {
+  id               String    @id @default(uuid())
+  text             String
+  options          Json      // Array of options
+  correctOption    Int
+  explanation      String?
+  imageUrl         String?
+  difficultyStatic Int
+  difficultyDynamic Float     @default(0)
+  topic            String
+  type             QuestionType
+  answers          Answer[]
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  @@map("questions")
+}
+
+model Answer {
+  id             String    @id @default(uuid())
+  user           User      @relation(fields: [userId], references: [id])
+  userId         String
+  question       Question  @relation(fields: [questionId], references: [id])
+  questionId     String
+  selectedOption Int
+  isCorrect      Boolean
+  exam           Exam?     @relation(fields: [examId], references: [id])
+  examId         String?
+  responseTime   Int       // in seconds
+  confidenceLevel Int
+  createdAt      DateTime  @default(now())
+
+  @@map("answers")
+}
+
+model Exam {
+  id          String    @id @default(uuid())
+  user        User      @relation(fields: [userId], references: [id])
+  userId      String
+  score       Int
+  duration    Int       // in minutes
+  answers     Answer[]
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@map("exams")
+}
+
+enum Role {
+  ADMIN
+  TEACHER
+  STUDENT
+  PARENT
+}
+
+enum QuestionType {
+  PRACTICE
+  EXAM
+}
