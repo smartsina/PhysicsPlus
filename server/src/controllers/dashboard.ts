@@ -65,7 +65,7 @@ export const getDashboard = async (req: Request, res: Response) => {
 
     // Get recent achievements
     const recentAchievements = user.achievements
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .sort((a, b) => b.earnedAt.getTime() - a.earnedAt.getTime())
       .slice(0, 5);
 
     // Format response
