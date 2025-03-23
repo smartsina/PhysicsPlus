@@ -10,7 +10,6 @@ export const getUsers = async (req: Request, res: Response) => {
         id: true,
         username: true,
         email: true,
-        role: true,
         xpPoints: true,
         createdAt: true,
         _count: {
@@ -56,9 +55,9 @@ export const createQuestion = async (req: Request, res: Response) => {
 
     const question = await prisma.question.create({
       data: {
-        text,
-        options,
-        correctAnswer,
+        text: text.toString(),
+        options: options as string[],
+        correctAnswer: correctAnswer.toString(),
         difficulty: Number(difficulty),
         topicId: Number(topicId)
       },
@@ -82,9 +81,9 @@ export const updateQuestion = async (req: Request, res: Response) => {
     const question = await prisma.question.update({
       where: { id: Number(id) },
       data: {
-        text,
-        options,
-        correctAnswer,
+        text: text.toString(),
+        options: options as string[],
+        correctAnswer: correctAnswer.toString(),
         difficulty: Number(difficulty),
         topicId: Number(topicId)
       },
