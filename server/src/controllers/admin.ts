@@ -51,11 +51,12 @@ export const getQuestions = async (req: Request, res: Response) => {
 
 export const createQuestion = async (req: Request, res: Response) => {
   try {
-    const { text, options, correctAnswer, difficulty, topicId } = req.body;
+    const { title, content, options, correctAnswer, difficulty, topicId } = req.body;
 
     const question = await prisma.question.create({
       data: {
-        text: text.toString(),
+        title: title.toString(),
+        content: content.toString(),
         options: options as string[],
         correctAnswer: correctAnswer.toString(),
         difficulty: Number(difficulty),
@@ -76,12 +77,13 @@ export const createQuestion = async (req: Request, res: Response) => {
 export const updateQuestion = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { text, options, correctAnswer, difficulty, topicId } = req.body;
+    const { title, content, options, correctAnswer, difficulty, topicId } = req.body;
 
     const question = await prisma.question.update({
       where: { id: Number(id) },
       data: {
-        text: text.toString(),
+        title: title.toString(),
+        content: content.toString(),
         options: options as string[],
         correctAnswer: correctAnswer.toString(),
         difficulty: Number(difficulty),
