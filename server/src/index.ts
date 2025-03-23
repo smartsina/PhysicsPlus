@@ -3,16 +3,15 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import { rateLimit } from 'express-rate-limit';
-import { errorHandler } from './middleware/errorHandler';
-import { routes } from './routes';
-import { logger } from './utils/logger';
+import routes from './routes';
 
 const app = express();
+const port = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
 app.use(helmet());
-app.use(morgan('combined'));
+app.use(morgan('dev'));
 app.use(express.json());
 
 // Rate limiting
@@ -26,10 +25,11 @@ app.use(limiter);
 app.use('/api', routes);
 
 // Error handling
-app.use(errorHandler);
+app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error(err.stack);
+  res.status(500).json({ message: 'Internal server error' });
+});
 
-const PORT = process.env.PORT || 4000;
-
-app.listen(PORT, () => {
-  logger.info(`🚀 Server running on port ${PORT}`);
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
 });
