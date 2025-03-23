@@ -1,121 +1,92 @@
 import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
-import { logger } from '../utils/logger';
+import { User } from '../types';
 
 const prisma = new PrismaClient();
 
-export async function getDashboardStats(req: Request, res: Response) {
+interface TopicProgress {
+  total: number;
+  correct: number;
+}
+
+export const getDashboard = async (req: Request, res: Response) => {
   try {
-    const userId = req.user!.id;
+    const userId = (req.user as User).id;
 
-    const [totalAnswers, correctAnswers, user] = await Promise.all([
-      prisma.answer.count({
-        where: { userId },
-      }),
-      prisma.answer.count({
-        where: {
-          userId,
-          isCorrect: true,
-        },
-      }),
-      prisma.user.findUnique({
-        where: { id: userId },
-      }),
-    ]);
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        answers: true,
+        examResults: true
+      }
+    });
 
-    res.json({
-      totalQuestions: totalAnswers,
-      correctPercentage: totalAnswers > 0
-        ? Math.round((correctAnswers / totalAnswers) * 100)
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Calculate user stats
+    const stats = {
+      totalQuestions: user.answers.length,
+      correctAnswers: user.answers.filter(a => a.isCorrect).length,
+      examsTaken: user.examResults.length,
+      averageScore: user.examResults.length > 0
+        ? user.examResults.reduce((acc, exam) => acc + exam.score, 0) / user.examResults.length
         : 0,
-      studyStreak: user?.studyStreak || 0,
-      level: user?.level || 1,
-      xpPoints: user?.xpPoints || 0,
-    });
-  } catch (error) {
-    logger.error('Get dashboard stats error:', error);
-    res.status(500).json({ message: 'خطای سرور' });
-  }
-}
+      xpPoints: user.xpPoints,
+      level: Math.floor(user.xpPoints / 100) + 1,
+      studyStreak: 0 // This will be implemented with activity tracking
+    };
 
-export async function getWeakTopics(req: Request, res: Response) {
-  try {
-    const userId = req.user!.id;
-
+    // Get topic progress
+    const topics = await prisma.topic.findMany();
     const answers = await prisma.answer.findMany({
-      where: { userId },
-      include: {
-        question: {
-          select: {
-            topic: true,
-          },
-        },
-      },
+      where: { userId }
     });
 
-    const topicStats = answers.reduce((acc, answer) => {
-      const topic = answer.question.topic;
-      if (!acc[topic]) {
-        acc[topic] = { total: 0, correct: 0 };
-      }
-      acc[topic].total++;
-      if (answer.isCorrect) {
-        acc[topic].correct++;
-      }
-      return acc;
-    }, {} as Record<string, { total: number; correct: number }>);
-
-    const weakTopics = Object.entries(topicStats)
-      .map(([topic, stats]) => ({
-        name: topic,
-        correctPercentage: Math.round((stats.correct / stats.total) * 100),
-      }))
-      .sort((a, b) => a.correctPercentage - b.correctPercentage)
-      .slice(0, 5);
-
-    res.json(weakTopics);
-  } catch (error) {
-    logger.error('Get weak topics error:', error);
-    res.status(500).json({ message: 'خطای سرور' });
-  }
-}
-
-export async function getRecentActivity(req: Request, res: Response) {
-  try {
-    const userId = req.user!.id;
-
-    const activities = await prisma.answer.findMany({
-      where: { userId },
-      include: {
-        question: {
-          select: {
-            topic: true,
-            type: true,
-          },
-        },
-        exam: {
-          select: {
-            score: true,
-          },
-        },
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-      take: 10,
+    const topicProgress: Record<string, TopicProgress> = {};
+    
+    topics.forEach(topic => {
+      const topicAnswers = answers.filter(a => a.topic === topic.name);
+      topicProgress[topic.name] = {
+        total: topicAnswers.length,
+        correct: topicAnswers.filter(a => a.isCorrect).length
+      };
     });
 
-    const formattedActivities = activities.map(activity => ({
+    // Get recent activity
+    const recentQuestions = await prisma.answer.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      include: {
+        question: true
+      }
+    });
+
+    const recentActivity = recentQuestions.map(activity => ({
       id: activity.id,
-      type: activity.question.type,
-      topic: activity.question.topic,
-      score: activity.exam?.score,
-      date: activity.createdAt,
+      type: 'question',
+      topic: activity.topic,
+      isCorrect: activity.isCorrect,
+      createdAt: activity.createdAt,
+      score: activity.isCorrect ? 10 : 0
     }));
 
-    res.json(formattedActivities);
+    res.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        xpPoints: user.xpPoints,
+        level: stats.level
+      },
+      stats,
+      topicProgress,
+      recentActivity
+    });
   } catch (error) {
-    logger.error('Get recent activity error:', error);
-    res.status(500).json({ message: 'خطای سرور' });
+    console.error('Dashboard error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
-}
+};
