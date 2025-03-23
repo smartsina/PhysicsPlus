@@ -2,64 +2,74 @@ import { Request, Response } from 'express';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { logger } from '../utils/logger';
+import { User, JwtPayload } from '../types';
 
 const prisma = new PrismaClient();
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
-export async function login(req: Request, res: Response) {
+export const login = async (req: Request, res: Response) => {
   try {
-    const { username, password } = req.body;
+    const { email, password } = req.body;
 
     const user = await prisma.user.findUnique({
-      where: { username },
-    });
+      where: { email }
+    }) as User;
 
     if (!user) {
-      return res.status(401).json({ message: 'نام کاربری یا رمز عبور اشتباه است' });
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const isValidPassword = await bcrypt.compare(password, user.password);
-
+    const isValidPassword = await bcrypt.compare(password, user.passwordHash);
     if (!isValidPassword) {
-      return res.status(401).json({ message: 'نام کاربری یا رمز عبور اشتباه است' });
+      return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const token = jwt.sign(
-      { userId: user.id, role: user.role },
-      process.env.JWT_SECRET!,
-      { expiresIn: process.env.JWT_EXPIRY }
-    );
+    const payload: JwtPayload = {
+      userId: user.id,
+      role: user.role || 'user'
+    };
 
+    const token = jwt.sign(payload, JWT_SECRET, { expiresIn: '24h' });
+
+    // Update last login
     await prisma.user.update({
       where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+      data: {
+        xpPoints: user.xpPoints + 1 // Bonus point for logging in
+      }
     });
 
     res.json({
       token,
       user: {
         id: user.id,
+        email: user.email,
         username: user.username,
-        name: user.name,
-        role: user.role,
-      },
+        role: user.role || 'user',
+        xpPoints: user.xpPoints
+      }
     });
   } catch (error) {
-    logger.error('Login error:', error);
-    res.status(500).json({ message: 'خطای سرور' });
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
-}
+};
 
-export async function register(req: Request, res: Response) {
+export const register = async (req: Request, res: Response) => {
   try {
-    const { username, password, name, role } = req.body;
+    const { username, email, password } = req.body;
 
-    const existingUser = await prisma.user.findUnique({
-      where: { username },
+    const existingUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email },
+          { username }
+        ]
+      }
     });
 
     if (existingUser) {
-      return res.status(400).json({ message: 'این نام کاربری قبلاً ثبت شده است' });
+      return res.status(400).json({ message: 'User already exists' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -67,23 +77,30 @@ export async function register(req: Request, res: Response) {
     const user = await prisma.user.create({
       data: {
         username,
-        password: hashedPassword,
-        name,
-        role,
-      },
-    });
+        email,
+        passwordHash: hashedPassword,
+        xpPoints: 0
+      }
+    }) as User;
+
+    const token = jwt.sign(
+      { userId: user.id, role: 'user' },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
 
     res.status(201).json({
-      message: 'ثبت‌نام با موفقیت انجام شد',
+      token,
       user: {
         id: user.id,
+        email: user.email,
         username: user.username,
-        name: user.name,
-        role: user.role,
-      },
+        role: 'user',
+        xpPoints: 0
+      }
     });
   } catch (error) {
-    logger.error('Registration error:', error);
-    res.status(500).json({ message: 'خطای سرور' });
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
-}
+};
