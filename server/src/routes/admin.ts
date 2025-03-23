@@ -1,34 +1,25 @@
 import { Router } from 'express';
-import { isAdmin } from '../middleware/auth';
 import {
+  getUsers,
+  getQuestions,
   createQuestion,
   updateQuestion,
-  deleteQuestion,
-  listQuestions,
-  createExam,
-  updateExam,
-  deleteExam,
-  listExams,
-  getStats,
-  updateSettings,
+  deleteQuestion
 } from '../controllers/admin';
+import { isAuth, isAdmin } from '../middleware/auth';
 
 const router = Router();
 
-// Questions
-router.get('/questions', isAdmin, listQuestions);
-router.post('/questions', isAdmin, createQuestion);
-router.put('/questions/:id', isAdmin, updateQuestion);
-router.delete('/questions/:id', isAdmin, deleteQuestion);
+// All admin routes require both authentication and admin role
+router.use(isAuth, isAdmin);
 
-// Exams
-router.get('/exams', isAdmin, listExams);
-router.post('/exams', isAdmin, createExam);
-router.put('/exams/:id', isAdmin, updateExam);
-router.delete('/exams/:id', isAdmin, deleteExam);
+// User management
+router.get('/users', getUsers);
 
-// Stats & Settings
-router.get('/stats', isAdmin, getStats);
-router.put('/settings', isAdmin, updateSettings);
+// Question management
+router.get('/questions', getQuestions);
+router.post('/questions', createQuestion);
+router.put('/questions/:id', updateQuestion);
+router.delete('/questions/:id', deleteQuestion);
 
 export default router;
