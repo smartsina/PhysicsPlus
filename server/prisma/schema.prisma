@@ -8,85 +8,71 @@ datasource db {
 }
 
 model User {
-  id              Int              @id @default(autoincrement())
-  username        String           @unique
-  email           String           @unique
-  passwordHash    String           @map("password_hash")
-  xpPoints        Int              @default(0) @map("xp_points")
-  createdAt       DateTime         @default(now()) @map("created_at")
+  id              Int               @id @default(autoincrement())
+  username        String            @unique
+  email           String            @unique
+  passwordHash    String
+  xpPoints        Int               @default(0)
+  createdAt       DateTime          @default(now())
   answers         Answer[]
   examResults     ExamResult[]
   achievements    UserAchievement[]
   activityLogs    ActivityLog[]
-
-  @@map("users")
 }
 
 model Topic {
-  id          Int       @id @default(autoincrement())
-  name        String    @unique
+  id          Int         @id @default(autoincrement())
+  name        String      @unique
   description String?
-  createdAt   DateTime  @default(now()) @map("created_at")
+  createdAt   DateTime    @default(now())
   questions   Question[]
-
-  @@map("topics")
 }
 
 model Question {
-  id            Int       @id @default(autoincrement())
-  topicId       Int       @map("topic_id")
+  id            Int      @id @default(autoincrement())
+  topicId       Int
   content       String
-  correctAnswer String    @map("correct_answer")
+  correctAnswer String
   explanation   String?
   difficulty    Int
-  createdAt     DateTime  @default(now()) @map("created_at")
-  topic         Topic     @relation(fields: [topicId], references: [id])
+  createdAt     DateTime @default(now())
+  topic         Topic    @relation(fields: [topicId], references: [id])
   answers       Answer[]
-
-  @@map("questions")
 }
 
 model Answer {
-  id          Int       @id @default(autoincrement())
-  userId      Int       @map("user_id")
-  questionId  Int       @map("question_id")
-  answer      String
-  isCorrect   Boolean   @map("is_correct")
-  topic       String
-  createdAt   DateTime  @default(now()) @map("created_at")
-  user        User      @relation(fields: [userId], references: [id])
-  question    Question  @relation(fields: [questionId], references: [id])
-
-  @@map("answers")
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  questionId Int
+  answer     String
+  isCorrect  Boolean
+  topic      String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+  question   Question @relation(fields: [questionId], references: [id])
 }
 
 model ExamResult {
-  id        Int       @id @default(autoincrement())
-  userId    Int       @map("user_id")
+  id        Int      @id @default(autoincrement())
+  userId    Int
   score     Int
-  createdAt DateTime  @default(now()) @map("created_at")
-  user      User      @relation(fields: [userId], references: [id])
-
-  @@map("exam_results")
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
 }
 
 model UserAchievement {
-  id            Int       @id @default(autoincrement())
-  userId        Int       @map("user_id")
-  achievementId String    @map("achievement_id")
-  earnedAt      DateTime  @default(now()) @map("earned_at")
-  user          User      @relation(fields: [userId], references: [id])
-
-  @@map("user_achievements")
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  achievementId String
+  earnedAt      DateTime @default(now())
+  user          User     @relation(fields: [userId], references: [id])
 }
 
 model ActivityLog {
-  id        Int       @id @default(autoincrement())
-  userId    Int       @map("user_id")
+  id        Int      @id @default(autoincrement())
+  userId    Int
   type      String
   details   Json?
-  createdAt DateTime  @default(now()) @map("created_at")
-  user      User      @relation(fields: [userId], references: [id])
-
-  @@map("activity_logs")
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
 }
